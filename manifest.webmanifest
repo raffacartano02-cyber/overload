@@ -1,0 +1,16 @@
+{
+  "name": "Overload",
+  "short_name": "Overload",
+  "description": "Il registro delle tue progressioni in palestra. Dati 100% sul tuo dispositivo.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0f13",
+  "theme_color": "#0d0f13",
+  "lang": "it",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
