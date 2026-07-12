@@ -6,6 +6,7 @@ import { lineChart, barChart, hbars } from '../charts.js';
 
 let selEx = null;
 let volGroup = 'Tutti';
+let grpWeek = 0; // settimane indietro rispetto a quella corrente (0 = questa settimana)
 
 export function render(el) {
   const sessions = store.state.sessions;
@@ -38,6 +39,8 @@ export function render(el) {
   el.querySelector('#st-ex').addEventListener('change', e => { selEx = e.target.value; render(el); });
   const g = el.querySelector('#st-group');
   if (g) g.addEventListener('change', e => { volGroup = e.target.value; render(el); });
+  el.querySelector('#grp-prev').addEventListener('click', () => { grpWeek++; render(el); });
+  el.querySelector('#grp-next').addEventListener('click', () => { if (grpWeek > 0) { grpWeek--; render(el); } });
 }
 
 /* ---- Progressione per esercizio ---- */
@@ -83,7 +86,7 @@ function progressionSection(sessions, exIds) {
     <div class="legend small"><span class="lg" style="--c:var(--accent)">Peso max serie</span><span class="lg" style="--c:var(--muted)">1RM stimato</span></div>
     <h3>Andamento RPE</h3>
     ${hasRpe
-      ? lineChart({ labels, series: [{ color: 'var(--accent2)', values: pts.map(p => p.rpe) }], height: 130 })
+      ? lineChart({ labels, series: [{ color: 'var(--accent2)', values: pts.map(p => p.rpe) }], height: 130, yMin: 6, yMax: 10, tickDec: 1 })
       : '<div class="empty-chart">Nessun RPE registrato per questo esercizio.</div>'}
   </div>`;
 }
@@ -125,10 +128,17 @@ function volumeSection(sessions) {
 /* ---- Distribuzione gruppi muscolari ---- */
 
 function groupsSection(sessions) {
-  const cutoff = Date.now() - 30 * 86400000;
+  // Settimana selezionata: da lunedì (incluso) a domenica (inclusa)
+  const start = mondayOf(new Date());
+  start.setDate(start.getDate() - grpWeek * 7);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  const sunday = new Date(end.getTime() - 86400000);
+
   const cnt = {};
   for (const s of sessions) {
-    if (new Date(s.date).getTime() < cutoff) continue;
+    const t = new Date(s.date).getTime();
+    if (t < start.getTime() || t >= end.getTime()) continue;
     for (const en of s.entries) {
       const g = store.exById(en.exerciseId).group;
       for (const st of en.sets)
@@ -141,8 +151,13 @@ function groupsSection(sessions) {
 
   return `
   <div class="card">
-    <h2>Gruppi muscolari <span class="muted small">(serie negli ultimi 30 giorni)</span></h2>
-    ${items.length ? hbars(items) : '<div class="empty-chart">Nessuna serie negli ultimi 30 giorni.</div>'}
+    <h2>Gruppi muscolari <span class="muted small">(serie della settimana)</span></h2>
+    <div class="cal-head">
+      <button class="icon-btn" id="grp-prev">‹</button>
+      <b>lun ${fmtDateShort(start)} – dom ${fmtDateShort(sunday)}${grpWeek === 0 ? ' <span class="muted small">(questa settimana)</span>' : ''}</b>
+      <button class="icon-btn" id="grp-next"${grpWeek === 0 ? ' disabled' : ''}>›</button>
+    </div>
+    ${items.length ? hbars(items) : '<div class="empty-chart">Nessuna serie in questa settimana.</div>'}
   </div>`;
 }
 

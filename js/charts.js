@@ -2,7 +2,7 @@
 
 import { fmtNum } from './utils.js';
 
-export function lineChart({ labels = [], series = [], height = 210 } = {}) {
+export function lineChart({ labels = [], series = [], height = 210, yMin = null, yMax = null, tickDec = 0 } = {}) {
   const pts = series.flatMap(s => s.values.filter(v => v != null && isFinite(v)));
   if (!labels.length || !pts.length) return '<div class="empty-chart">Dati insufficienti</div>';
 
@@ -16,6 +16,8 @@ export function lineChart({ labels = [], series = [], height = 210 } = {}) {
   const rawMin = min;
   min -= pad; max += pad;
   if (min < 0 && rawMin >= 0) min = 0;
+  // Scala fissa (es. RPE 6-10): ignora il padding automatico
+  if (yMin != null && yMax != null) { min = yMin; max = yMax; }
 
   const n = labels.length;
   const X = i => padL + (n === 1 ? iw / 2 : (i * iw) / (n - 1));
@@ -26,7 +28,7 @@ export function lineChart({ labels = [], series = [], height = 210 } = {}) {
     const v = min + ((max - min) * t) / 3;
     const y = Y(v);
     grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="gridline"/>`
-      + `<text x="${padL - 10}" y="${(y + 7).toFixed(1)}" class="tick" text-anchor="end">${fmtNum(v, 0)}</text>`;
+      + `<text x="${padL - 10}" y="${(y + 7).toFixed(1)}" class="tick" text-anchor="end">${fmtNum(v, tickDec)}</text>`;
   }
 
   let lines = '';
