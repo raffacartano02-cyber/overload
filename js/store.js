@@ -102,8 +102,9 @@ export function startSession(tpl) {
         id: uid(),
         exerciseId: it.exerciseId,
         note: it.note || '',
-        target: [it.sets, it.reps].filter(Boolean).join('×'),
+        target: ([it.sets, it.reps].filter(Boolean).join('×') + (it.rpe ? ' @' + it.rpe : '')).trim(),
         targetReps: it.reps || '',
+        targetRpe: it.rpe || '',
         sets: Array.from({ length: Math.max(1, parseInt(it.sets, 10) || 3) }, () => newSet())
       }))
     : [];
