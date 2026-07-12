@@ -71,6 +71,7 @@ function renderEditor(el) {
           <label>Serie <input class="input" type="number" min="1" data-f="sets" value="${esc(it.sets)}"></label>
           <label>Reps <input class="input" type="text" data-f="reps" placeholder="8-10" value="${esc(it.reps)}"></label>
           <label>RPE <input class="input" type="text" inputmode="decimal" data-f="rpe" placeholder="es. 8" value="${esc(it.rpe || '')}"></label>
+          <label>Rec <input class="input" type="text" data-f="rest" placeholder="2:30" value="${esc(it.rest || '')}"></label>
         </div>
         <input class="input" type="text" data-f="note" placeholder="Nota (es. fermo 2s al petto)" value="${esc(it.note || '')}">
       </div>`).join('')}
@@ -104,7 +105,7 @@ function renderEditor(el) {
 
   el.querySelector('#t-add').addEventListener('click', () =>
     pickExercise(id => {
-      draft.items.push({ id: uid(), exerciseId: id, sets: '3', reps: '', rpe: '', note: '' });
+      draft.items.push({ id: uid(), exerciseId: id, sets: '3', reps: '', rpe: '', rest: '', note: '' });
       App.renderView();
     }));
   el.querySelector('#t-back').addEventListener('click', () => { draft = null; App.renderView(); });
