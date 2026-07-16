@@ -5,8 +5,8 @@ import { App } from '../router.js';
 import { esc, num, fmtNum, fmtTime, fmtDateShort, setVolume } from '../utils.js';
 import { openModal, confirmDlg, toast, pickExercise } from '../ui.js';
 
-const RPE = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
-const TYPES = ['N', 'W', 'D', 'S', 'F'];
+const RPE = store.RPE_VALUES;
+const TYPES = store.SET_TYPES;
 let timer = null;
 
 export function render(el) {
@@ -61,9 +61,10 @@ function renderActive(el) {
     </div>`;
 
   const tick = () => {
-    const m = Math.floor((Date.now() - new Date(a.startedAt).getTime()) / 60000);
     const elt = document.getElementById('w-elapsed');
-    if (elt) elt.textContent = m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
+    if (!elt) { clearInterval(timer); timer = null; return; } // vista cambiata: ferma il timer
+    const m = Math.floor((Date.now() - new Date(a.startedAt).getTime()) / 60000);
+    elt.textContent = m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
   };
   tick();
   timer = setInterval(tick, 30000);
@@ -157,17 +158,33 @@ function bindActive(el, a) {
   });
 }
 
-async function onFinish() {
+function onFinish() {
   const a = store.state.active;
   const valid = a.entries.some(en => en.sets.some(s => String(s.weight).trim() || String(s.reps).trim()));
   if (!valid) {
     toast('Nessuna serie compilata: inserisci almeno una serie o annulla.');
     return;
   }
-  if (!(await confirmDlg("Terminare l'allenamento?", 'La sessione verrà salvata nello storico.', { ok: 'Termina e salva' }))) return;
-  const res = store.finishSession();
-  App.renderView();
-  if (res && res.session) showSummary(res);
+  // Durata precompilata ma correggibile: se la sessione è rimasta aperta
+  // (telefono in tasca, "Termina" dimenticato) i minuti reali si sistemano qui.
+  const computed = Math.max(1, Math.round((Date.now() - new Date(a.startedAt).getTime()) / 60000));
+  const m = openModal(`
+    <h3>Terminare l'allenamento?</h3>
+    <p class="muted small">La sessione verrà salvata nello storico.</p>
+    <label for="fin-mins">Durata (minuti)</label>
+    <input class="input" id="fin-mins" type="number" inputmode="numeric" min="1" step="1" value="${computed}">
+    ${computed > 240 ? '<p class="warnline">⚠️ Sembra tanta: se hai lasciato la sessione aperta, correggi la durata prima di salvare.</p>' : ''}
+    <div class="modal-actions">
+      <button class="btn ghost" data-close>Annulla</button>
+      <button class="btn primary" data-ok>Termina e salva</button>
+    </div>`);
+  m.el.querySelector('[data-ok]').addEventListener('click', () => {
+    const mins = num(m.el.querySelector('#fin-mins').value);
+    m.close();
+    const res = store.finishSession(mins > 0 ? mins : null);
+    App.renderView();
+    if (res && res.session) showSummary(res);
+  });
 }
 
 function showSummary({ session, prs }) {

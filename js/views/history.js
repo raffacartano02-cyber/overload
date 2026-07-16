@@ -1,9 +1,9 @@
-// Vista Storico: calendario e dettaglio sessioni
+// Vista Storico: calendario, dettaglio sessioni e modifica a posteriori
 
 import * as store from '../store.js';
 import { App } from '../router.js';
-import { esc, num, fmtNum, fmtDate, fmtTime, setVolume, dayKey } from '../utils.js';
-import { confirmDlg } from '../ui.js';
+import { esc, num, fmtNum, fmtDate, fmtTime, setVolume, dayKey, hasData, uid } from '../utils.js';
+import { confirmDlg, toast, pickExercise } from '../ui.js';
 
 const MONTHS = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
@@ -11,6 +11,7 @@ const MONTHS = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
 let cal = null;      // {y, m} mese visualizzato
 let selDay = null;   // 'YYYY-MM-DD' filtro giorno
 let openId = null;   // sessione espansa
+let draft = null;    // copia di lavoro della sessione in modifica (null = nessuna)
 
 export function render(el) {
   if (!cal) {
@@ -66,6 +67,7 @@ function sessionCard(s) {
   const vol = s.entries.reduce((t, en) => t + setVolume(en.sets), 0);
   const mins = s.endedAt ? Math.round((new Date(s.endedAt) - new Date(s.date)) / 60000) : null;
   const open = openId === s.id;
+  const editing = draft && draft.id === s.id;
   return `
   <div class="card session" data-sess="${s.id}">
     <div class="session-head" data-act="toggle">
@@ -75,7 +77,7 @@ function sessionCard(s) {
       </div>
       <div class="session-meta small muted">${s.entries.length} es · ${sets} serie · ${fmtNum(vol, 0)} kg${mins != null ? ` · ${mins} min` : ''}</div>
     </div>
-    ${open ? `
+    ${open ? (editing ? editorHtml() : `
     <div class="session-detail">
       ${s.entries.map(en => `
       <div class="sd-ex">
@@ -83,10 +85,97 @@ function sessionCard(s) {
         <div class="small">${en.sets.map(fmtFullSet).join(' · ')}</div>
         ${en.note ? `<div class="muted small note">📝 ${esc(en.note)}</div>` : ''}
       </div>`).join('')}
-      <button class="btn danger ghost small" data-act="del">Elimina sessione</button>
-    </div>` : ''}
+      <div class="row-btns">
+        <button class="btn small" data-act="edit">✏️ Modifica</button>
+        <button class="btn danger ghost small" data-act="del">Elimina sessione</button>
+      </div>
+    </div>`) : ''}
   </div>`;
 }
+
+/* ===== Editor sessione ===== */
+
+// Prepara la copia di lavoro: i campi _date/_time/_mins sono solo del draft
+// e vengono ricombinati in date/endedAt al salvataggio.
+function makeDraft(s) {
+  const d = JSON.parse(JSON.stringify(s));
+  const start = new Date(s.date);
+  d._date = dayKey(start);
+  d._time = String(start.getHours()).padStart(2, '0') + ':' + String(start.getMinutes()).padStart(2, '0');
+  d._mins = s.endedAt ? String(Math.max(1, Math.round((new Date(s.endedAt) - start) / 60000))) : '';
+  return d;
+}
+
+function editorHtml() {
+  return `
+  <div class="session-detail session-edit">
+    <label>Nome allenamento</label>
+    <input class="input" data-ed="name" value="${esc(draft.name)}">
+    <div class="tpl-grid">
+      <label>Data<input class="input" type="date" data-ed="_date" value="${esc(draft._date)}"></label>
+      <label>Inizio<input class="input" type="time" data-ed="_time" value="${esc(draft._time)}"></label>
+      <label>Durata (min)<input class="input" type="number" inputmode="numeric" min="1" step="1" data-ed="_mins" value="${esc(draft._mins)}"></label>
+    </div>
+    <div class="hint">Tocca il numero della serie per marcarla: <b>W</b> riscaldamento · <b>D</b> drop set · <b>S</b> superset · <b>F</b> cedimento</div>
+    ${draft.entries.map(en => `
+    <div class="ed-entry" data-eid="${en.id}">
+      <div class="entry-head">
+        <div class="card-title">${esc(store.exById(en.exerciseId).name)}</div>
+        <button class="icon-btn" data-act="ed-rm-ex" title="Rimuovi esercizio">✕</button>
+      </div>
+      <div class="set-grid set-head muted small"><span>#</span><span>Kg</span><span>Rep</span><span>RPE</span><span>Rec</span><span></span></div>
+      ${en.sets.map((s, i) => edSetRow(s, i)).join('')}
+      <button class="btn ghost small" data-act="ed-add-set">+ Aggiungi serie</button>
+      <input class="input note-input" data-act="ed-note" placeholder="Note esercizio…" value="${esc(en.note || '')}">
+    </div>`).join('')}
+    <button class="btn ghost big" data-act="ed-add-ex">+ Aggiungi esercizio</button>
+    <div class="wk-actions">
+      <button class="btn ghost" data-act="ed-cancel">Annulla</button>
+      <button class="btn primary" data-act="ed-save">Salva modifiche</button>
+    </div>
+  </div>`;
+}
+
+function edSetRow(s, i) {
+  return `
+  <div class="set-grid" data-sid="${s.id}">
+    <button class="set-type t-${s.type}" data-act="ed-type" title="Cambia tipo serie">${s.type === 'N' ? i + 1 : s.type}</button>
+    <input class="input" type="number" inputmode="decimal" step="0.5" min="0" data-f="weight" value="${esc(s.weight)}">
+    <input class="input" type="number" inputmode="numeric" step="1" min="0" data-f="reps" value="${esc(s.reps)}">
+    <select class="input" data-f="rpe">${store.RPE_VALUES.map(r => `<option value="${r}"${String(s.rpe) === r ? ' selected' : ''}>${r || '–'}</option>`).join('')}</select>
+    <input class="input" type="text" data-f="rest" value="${esc(s.rest)}" placeholder="2:30">
+    <button class="icon-btn" data-act="ed-rm-set" title="Elimina serie">✕</button>
+  </div>`;
+}
+
+function saveDraft() {
+  const entries = draft.entries
+    .map(en => ({ ...en, sets: en.sets.filter(hasData) }))
+    .filter(en => en.sets.length);
+  if (!entries.length) {
+    toast('La sessione non può restare vuota: lascia almeno una serie o eliminala.');
+    return;
+  }
+  const [y, mo, dd] = String(draft._date).split('-').map(Number);
+  const [hh, mi] = String(draft._time || '00:00').split(':').map(Number);
+  let start = new Date(y, (mo || 1) - 1, dd || 1, hh || 0, mi || 0);
+  if (isNaN(start.getTime())) start = new Date(draft.date); // data non valida: tieni l'originale
+  const mins = num(draft._mins);
+  store.updateSession({
+    id: draft.id,
+    date: start.toISOString(),
+    endedAt: mins > 0 ? new Date(start.getTime() + Math.round(mins) * 60000).toISOString() : null,
+    name: (draft.name || '').trim() || 'Allenamento',
+    templateId: draft.templateId ?? null,
+    entries
+  });
+  openId = draft.id;
+  draft = null;
+  toast('Sessione aggiornata ✔');
+  App.renderView();
+}
+
+/* ===== Bind ===== */
 
 function bind(el) {
   el.querySelector('#cal-prev').addEventListener('click', () => {
@@ -109,6 +198,7 @@ function bind(el) {
   el.querySelectorAll('[data-sess]').forEach(card => {
     const id = card.dataset.sess;
     card.querySelector('[data-act="toggle"]').addEventListener('click', () => {
+      if (draft && draft.id === id) return; // in modifica: il collasso è disabilitato
       openId = openId === id ? null : id;
       App.renderView();
     });
@@ -119,6 +209,61 @@ function bind(el) {
         openId = null;
         App.renderView();
       }
+    });
+    const edit = card.querySelector('[data-act="edit"]');
+    if (edit) edit.addEventListener('click', () => {
+      draft = makeDraft(store.state.sessions.find(s => s.id === id));
+      App.renderView();
+    });
+    if (draft && draft.id === id) bindEditor(card);
+  });
+}
+
+function bindEditor(card) {
+  // Campi testata: aggiornano il draft senza rirender (per non perdere il focus)
+  card.querySelectorAll('[data-ed]').forEach(inp =>
+    inp.addEventListener('input', () => { draft[inp.dataset.ed] = inp.value; }));
+
+  card.querySelector('[data-act="ed-cancel"]').addEventListener('click', () => {
+    draft = null;
+    App.renderView();
+  });
+  card.querySelector('[data-act="ed-save"]').addEventListener('click', saveDraft);
+  card.querySelector('[data-act="ed-add-ex"]').addEventListener('click', () =>
+    pickExercise(exId => {
+      draft.entries.push({ id: uid(), exerciseId: exId, note: '', target: '', targetReps: '', sets: [store.newSet(), store.newSet(), store.newSet()] });
+      App.renderView();
+    }));
+
+  card.querySelectorAll('.ed-entry').forEach(exEl => {
+    const en = draft.entries.find(x => x.id === exEl.dataset.eid);
+    if (!en) return;
+    exEl.querySelector('[data-act="ed-rm-ex"]').addEventListener('click', async () => {
+      if (await confirmDlg(`Rimuovere ${store.exById(en.exerciseId).name}?`, '', { ok: 'Rimuovi', danger: true })) {
+        draft.entries = draft.entries.filter(x => x.id !== en.id);
+        App.renderView();
+      }
+    });
+    exEl.querySelector('[data-act="ed-add-set"]').addEventListener('click', () => {
+      const prev = en.sets[en.sets.length - 1];
+      en.sets.push({ ...store.newSet(), weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', rest: prev ? prev.rest : '' });
+      App.renderView();
+    });
+    exEl.querySelector('[data-act="ed-note"]').addEventListener('input', e => { en.note = e.target.value; });
+
+    exEl.querySelectorAll('[data-sid]').forEach(rowEl => {
+      const set = en.sets.find(s => s.id === rowEl.dataset.sid);
+      if (!set) return;
+      rowEl.querySelector('[data-act="ed-type"]').addEventListener('click', () => {
+        set.type = store.SET_TYPES[(store.SET_TYPES.indexOf(set.type) + 1) % store.SET_TYPES.length];
+        App.renderView();
+      });
+      rowEl.querySelector('[data-act="ed-rm-set"]').addEventListener('click', () => {
+        en.sets = en.sets.filter(s => s.id !== set.id);
+        App.renderView();
+      });
+      rowEl.querySelectorAll('[data-f]').forEach(inp =>
+        inp.addEventListener('input', () => { set[inp.dataset.f] = inp.value; }));
     });
   });
 }

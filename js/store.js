@@ -5,6 +5,10 @@ import { uid, num, e1rm, isWork, hasData, fmtNum } from './utils.js';
 
 const KEY = 'overload_v1';
 
+// Costanti di dominio condivise tra allenamento e storico
+export const SET_TYPES = ['N', 'W', 'D', 'S', 'F'];
+export const RPE_VALUES = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
+
 function fresh() {
   return {
     version: 1,
@@ -152,7 +156,10 @@ export function cancelSession() {
   save();
 }
 
-export function finishSession() {
+// durationMin (opzionale): durata corretta dall'utente; endedAt viene
+// ricavato da startedAt + durata, così i minuti non dipendono da quanto
+// a lungo la sessione è rimasta aperta per sbaglio.
+export function finishSession(durationMin = null) {
   const a = state.active;
   if (!a) return null;
   const entries = a.entries
@@ -160,10 +167,13 @@ export function finishSession() {
     .filter(en => en.sets.length);
   if (!entries.length) return { empty: true };
   const prs = computePRs(entries);
+  const mins = isFinite(durationMin) && durationMin > 0 ? Math.round(durationMin) : null;
   const session = {
     id: a.id,
     date: a.startedAt,
-    endedAt: new Date().toISOString(),
+    endedAt: mins
+      ? new Date(new Date(a.startedAt).getTime() + mins * 60000).toISOString()
+      : new Date().toISOString(),
     name: (a.name || '').trim() || 'Allenamento',
     templateId: a.templateId,
     entries
@@ -178,6 +188,16 @@ export function finishSession() {
 export function deleteSession(id) {
   state.sessions = state.sessions.filter(s => s.id !== id);
   save();
+}
+
+// Sostituisce una sessione salvata (modifica dallo storico)
+export function updateSession(session) {
+  const i = state.sessions.findIndex(s => s.id === session.id);
+  if (i < 0) return false;
+  state.sessions[i] = session;
+  state.sessions.sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  save();
+  return true;
 }
 
 /* ===== Analisi ===== */
